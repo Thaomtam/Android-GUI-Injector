@@ -1,32 +1,53 @@
-name: App CI Build
+name: Build
 
 on:
-  push:
-    branches: [ "C-M-Y" ]
-  pull_request:
-    branches: [ "C-M-Y" ]
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    tags: [ v* ]
+  pull_request:
+  merge_group:
 
 jobs:
-  try_to_build:
+  build:
+    name: Build
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          submodules: "recursive"
           fetch-depth: 0
+
+      - name: Write key
+        if: ${{ ( github.event_name != 'pull_request' && github.ref == 'refs/heads/master' ) || github.ref_type == 'tag' }}
+        run: |
+          if [ ! -z "${{ secrets.KEY_STORE }}" ]; then
+            echo storePassword='${{ secrets.KEY_STORE_PASSWORD }}' >> keystore.properties
+            echo keyAlias='${{ secrets.ALIAS }}' >> keystore.properties
+            echo keyPassword='${{ secrets.KEY_PASSWORD }}' >> keystore.properties
+            echo storeFile=$PWD/'key.jks' >> keystore.properties
+            echo '${{ secrets.KEY_STORE }}' | base64 --decode > key.jks
+          fi
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '23'
-          distribution: 'oracle'
-      - name: Change VersionName to Nightly Version
-        run: sed -i 's/\(versionName ".*\) ([0-9]\{4\}\.[0-9]\{2\}\.[0-9]\{2\})"/\1 (Nightly)('"$(date "+%Y-%m-%d %T")"')"/' app/build.gradle
-      - name: Build CI Version
-        run: chmod 0777 ./gradlew && ./gradlew assembleRelease
-      - name: Upload Artifact
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build with Gradle
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload release
         uses: actions/upload-artifact@v4
         with:
-          name: CacheCleaner-CI
+          name: "MyInjector"
+          path: "./app/build/outputs/apk/debug/*.apk"
           compression-level: 9
-          path: app/build/outputs/apk/release/app-release.apk
